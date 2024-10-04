@@ -2,12 +2,13 @@ const fs = require('fs');
 const path = require('path');
 const NodeID3 = require('node-id3');
 const sharp = require('sharp');
+const csv = require('csv-parser');
 
 // Function to resize and center crop the image to 300x300 pixels
 async function resizeImage(imageFile) {
     try {
         const resizedImageBuffer = await sharp(imageFile)
-            .resize(3000 , 3000 , {
+            .resize(300, 300, {
                 fit: sharp.fit.cover,  // Crop to center and ensure dimensions are exactly 300x300
                 position: sharp.strategy.entropy,  // Focus on the most "interesting" part of the image
             })
@@ -49,44 +50,46 @@ async function addAlbumArtToMp3(mp3File, imageFile) {
     }
 }
 
-// Function to process all MP3 files in the folder
-async function processMp3Files(folderPath, artistImagePath) {
-    // Check if the folder exists
-    if (!fs.existsSync(folderPath)) {
-        console.error(`Error: Folder '${folderPath}' does not exist.`);
+// Function to process all rows in the CSV file
+function processCsvFile(csvFilePath) {
+    // Check if the CSV file exists
+    if (!fs.existsSync(csvFilePath)) {
+        console.error(`Error: CSV file '${csvFilePath}' does not exist.`);
         return;
     }
 
-    // Check if the artist image exists
-    if (!fs.existsSync(artistImagePath)) {
-        console.error(`Error: Artist image '${artistImagePath}' does not exist.`);
-        return;
-    }
+    // Read the CSV file
+    fs.createReadStream(csvFilePath)
+        .pipe(csv())
+        .on('data', async (row) => {
+            const albumFolder = row.Album;
+            const artistImage = row.Art;
 
-    // Get list of MP3 files from the folder
-    const mp3Files = fs.readdirSync(folderPath).filter(file => path.extname(file).toLowerCase() === '.mp3');
+            // Process each MP3 file in the album folder
+            if (fs.existsSync(albumFolder) && fs.existsSync(artistImage)) {
+                const mp3Files = fs.readdirSync(albumFolder).filter(file => path.extname(file).toLowerCase() === '.mp3');
 
-    if (mp3Files.length === 0) {
-        console.error(`No MP3 files found in the folder '${folderPath}'`);
-        return;
-    }
-
-    // Process each MP3 file
-    for (const mp3File of mp3Files) {
-        const mp3FilePath = path.join(folderPath, mp3File);
-        await addAlbumArtToMp3(mp3FilePath, artistImagePath);
-    }
+                for (const mp3File of mp3Files) {
+                    const mp3FilePath = path.join(albumFolder, mp3File);
+                    await addAlbumArtToMp3(mp3FilePath, artistImage);
+                }
+            } else {
+                console.error(`Error: Album folder '${albumFolder}' or image '${artistImage}' does not exist.`);
+            }
+        })
+        .on('end', () => {
+            console.log('CSV file processing completed.');
+        });
 }
 
-// Example usage: Get folder and image from user
-const mp3FolderPath = path.resolve(process.argv[2]); // Folder path containing MP3 files
-const artistImagePath = path.resolve(process.argv[3]); // Path to the artist image (PNG)
+// Example usage: Get CSV file path from user
+const csvFilePath = path.resolve(process.argv[2]); // Path to the CSV file
 
-if (!mp3FolderPath || !artistImagePath) {
-    console.error('Please provide the folder path with MP3 files and the artist image path as arguments.');
-    console.error('Usage: node addAlbumArt.js <MP3_FOLDER_PATH> <ARTIST_IMAGE_PATH>');
+if (!csvFilePath) {
+    console.error('Please provide the CSV file path as an argument.');
+    console.error('Usage: node addAlbumArt.js <CSV_FILE_PATH>');
     process.exit(1);
 }
 
-// Process the MP3 files
-processMp3Files(mp3FolderPath, artistImagePath);
+// Process the CSV file
+processCsvFile(csvFilePath);
